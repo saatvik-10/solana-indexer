@@ -17,18 +17,49 @@ fn main() {
 
     let address_sol = "So11111111111111111111111111111111111111112";
 
+    // match Pubkey::from_str(address_sol) {
+    //     Ok(pubkey) => {
+    //         println!("Checking address: {}", address_sol);
+
+    //         match client.get_balance(&pubkey) {
+    //             Ok(balance) => {
+    //                 let balance_sol = balance as f64 / 1000_000_000.0;
+    //                 println!("Balance: {} lamports ({:.9} SOL)", balance, balance_sol)
+    //             }
+    //             Err(e) => println!("Error fetching balance: {}", e),
+    //         }
+    //     }
+    //     Err(e) => println!("Invalid Address: {}", e),
+    // }
+
     match Pubkey::from_str(address_sol) {
         Ok(pubkey) => {
-            println!("Checking address: {}", address_sol);
+            println!("Fetching transaction history for: {}", address_sol);
 
-            match client.get_balance(&pubkey) {
-                Ok(balance) => {
-                    let balance_sol = balance as f64 / 1000_000_000.0;
-                    println!("Balance: {} lamports ({:.9} SOL)", balance, balance_sol)
+            //recent trasaction sigs
+            match client.get_signatures_for_address(&pubkey) {
+                Ok(sigs) => {
+                    let limited_sigs = sigs.iter().take(5);
+
+                    println!("Found {} recent transactions:\n", sigs.len());
+
+                    for (i, sig_info) in limited_sigs.enumerate() {
+                        println!("Transaction #{}", i + 1);
+                        println!("Signature: {}", sig_info.signature);
+                        println!("Slot: {}", sig_info.slot);
+                        println!("Block Time: {:?}", sig_info.block_time);
+
+                        if let Some(err) = &sig_info.err {
+                            println!("Error: {:?}", err);
+                        } else {
+                            println!("Success");
+                        }
+                        println!(".......................");
+                    }
                 }
-                Err(e) => println!("Error fetching balance: {}", e),
+                Err(e) => println!("Error fetching signatures {}", e),
             }
         }
-        Err(e) => println!("Invalid Address: {}", e),
+        Err(e) => println!("Invalid wallet address: {}", e),
     }
 }

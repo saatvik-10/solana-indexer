@@ -1,7 +1,7 @@
 use solana_client::{rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
 use solana_transaction_status::UiTransactionEncoding;
-use std::str::FromStr;
+use std::{str::FromStr, thread, time::Duration};
 
 fn main() {
     println!("Connecting to Solana Devnet...");
@@ -142,5 +142,96 @@ fn main() {
             }
         }
         Err(e) => println!("Invalid Address: {}", e),
+    }
+
+    println!("\nContinuous Transaction Monitor...\n");
+    let mut last_seen_sig = String::new();
+
+    match Pubkey::from_str(address_sol) {
+        Ok(pubkey) => {
+            println!("Address {} being monitored", address_sol);
+            println!("Polling transaction every 10 seconds...");
+
+            loop {
+                match client.get_signatures_for_address(&pubkey) {
+                    Ok(sigs) => {
+                        if !sigs.is_empty() {
+                            let latest_sig = &sigs[0];
+
+                            if latest_sig.signature != last_seen_sig {
+                                println!("New transaction detected!");
+                                analyze_transaction(&client, latest_sig);
+                                last_seen_sig = latest_sig.signature.clone();
+                                println!("..........................................");
+                            } else {
+                                println!("No new transaction found...");
+                                println!(
+                                    "Last polled at: {}",
+                                    chrono::Utc::now().format("%H:%M:%S")
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => println!("Error fetching signatures: {}", e),
+                }
+                thread::sleep(Duration::from_secs(10));
+            }
+        }
+        Err(e) => println!("Address is invalid: {}", e),
+    }
+}
+
+fn analyze_transaction(
+    client: &RpcClient,
+    sig_info: &solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature,
+) {
+    println!("Signature: {}", sig_info.signature);
+    println!("Slot: {}", sig_info.slot);
+    println!(
+        "Status: {}",
+        if sig_info.err.is_none() {
+            "Success"
+        } else {
+            "Failed"
+        }
+    );
+
+    match Signature::from_str(&sig_info.signature) {
+        Ok(sig) => {
+            let config = RpcTransactionConfig {
+                encoding: Some(UiTransactionEncoding::Json),
+                commitment: Some(CommitmentConfig::confirmed()),
+                max_supported_transaction_version: Some(0),
+            };
+
+            match client.get_transaction_with_config(&sig, config) {
+                Ok(txn_res) => {
+                    if let Some(meta) = txn_res.transaction.meta {
+                        println!("Fee: {} lamports", meta.fee);
+
+                        if meta.pre_balances.len() == meta.post_balances.len() {
+                            let mut total_change = 0i64;
+
+                            for (pre, post) in
+                                meta.pre_balances.iter().zip(meta.post_balances.iter())
+                            {
+                                let change = *post as i64 - *pre as i64;
+                                total_change += change.abs();
+                            }
+
+                            if total_change > 0 {
+                                println!(
+                                    "Total moved value: {} lamports ({:.6}) SOL",
+                                    total_change / 2,
+                                    (total_change / 2) as f64 / 1000_000_000.0
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => println!("Error fetching transaction details: {}", e),
+            }
+        }
+        Err(e) => println!("Error parsing signature: {}", e),
     }
 }

@@ -1,5 +1,6 @@
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
+use solana_client::{rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
+use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
+use solana_transaction_status::UiTransactionEncoding;
 use std::str::FromStr;
 
 fn main() {
@@ -63,5 +64,83 @@ fn main() {
             }
         }
         Err(e) => println!("Invalid wallet address: {}", e),
+    }
+
+    println!("\nFetching advance transaction history...\n");
+    match Pubkey::from_str(address_sol) {
+        Ok(pubkey) => {
+            println!("Fetching transaction details for: {}", address_sol);
+
+            //recent transaction sigs
+            match client.get_signatures_for_address(&pubkey) {
+                Ok(sigs) => {
+                    if sigs.is_empty() {
+                        println!("No transaction found!");
+                        return;
+                    }
+
+                    //details for recent trasaction
+                    let recent_sig = &sigs[0];
+                    println!("Analyzing the most recent transaction...");
+                    println!("Signature: {}", recent_sig.signature);
+
+                    //parsing the signature string
+                    match Signature::from_str(&recent_sig.signature) {
+                        Ok(sig) => {
+                            let config = RpcTransactionConfig {
+                                encoding: Some(UiTransactionEncoding::Json),
+                                commitment: Some(CommitmentConfig::confirmed()),
+                                max_supported_transaction_version: Some(0),
+                            };
+
+                            //fetching detailed transaction data
+                            match client.get_transaction_with_config(&sig, config) {
+                                Ok(transaction_response) => {
+                                    println!("\nTransaction Details:");
+
+                                    println!("Slots: {}", transaction_response.slot);
+                                    println!("Block Time: {:?}", transaction_response.block_time);
+
+                                    //metadata
+                                    if let Some(meta) = transaction_response.transaction.meta {
+                                        println!("Fee: {} lamports", meta.fee);
+                                        println!(
+                                            "Status: {}",
+                                            if meta.err.is_none() {
+                                                "Success"
+                                            } else {
+                                                "Failed"
+                                            }
+                                        );
+
+                                        //balance changes
+                                        if meta.pre_balances.len() == meta.post_balances.len() {
+                                            println!("Balance Changes:");
+
+                                            for (i, (pre, post)) in meta
+                                                .pre_balances
+                                                .iter()
+                                                .zip(meta.post_balances.iter())
+                                                .enumerate()
+                                            {
+                                                let change = *post as i64 - *pre as i64;
+
+                                                if change != 0 {
+                                                    println!("Account: {}: {} lamports", i, change);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => println!("Error fetching transaction details: {}", e),
+                            }
+                        }
+                        Err(e) => println!("Error parsing signature: {}", e),
+                    }
+                }
+                Err(e) => println!("Error fetching signatures: {}", e),
+            }
+        }
+        Err(e) => println!("Invalid Address: {}", e),
     }
 }

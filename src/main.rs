@@ -1,5 +1,5 @@
 pub mod analysis;
-pub mod db;
+mod db;
 pub mod models;
 
 use crate::analysis::analyze_transaction;
@@ -8,11 +8,13 @@ use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature:
 use solana_transaction_status::UiTransactionEncoding;
 use std::{str::FromStr, thread, time::Duration};
 
-fn main() {
+fn main() -> db::SqlResult<()> {
     println!("Connecting to Solana Devnet...");
 
     let rpc_url = String::from("https://api.devnet.solana.com");
     let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+
+    let db_conn = db::init_db()?;
 
     println!("\nBasic devnet connection...\n");
     println!("Connected to  Devnet...");
@@ -81,7 +83,7 @@ fn main() {
                 Ok(sigs) => {
                     if sigs.is_empty() {
                         println!("No transaction found!");
-                        return;
+                        return Ok(());
                     }
 
                     //details for recent trasaction
@@ -165,7 +167,18 @@ fn main() {
 
                             if latest_sig.signature != last_seen_sig {
                                 println!("New transaction detected!");
-                                analyze_transaction(&client, latest_sig);
+                                let analyze_res = analyze_transaction(&client, latest_sig);
+
+                                db::save_txn(
+                                    &db_conn,
+                                    &latest_sig.signature,
+                                    latest_sig.slot,
+                                    latest_sig.block_time.unwrap_or(0),
+                                    analyze_res.fee,
+                                    &analyze_res.status,
+                                    analyze_res.value_moved,
+                                )?;
+
                                 last_seen_sig = latest_sig.signature.clone();
                                 println!("..........................................");
                             } else {
@@ -174,6 +187,7 @@ fn main() {
                                     "Last polled at: {}",
                                     chrono::Utc::now().format("%H:%M:%S")
                                 );
+                                println!("..........................................");
                             }
                         }
                     }
@@ -184,4 +198,5 @@ fn main() {
         }
         Err(e) => println!("Address is invalid: {}", e),
     }
+    Ok(())
 }

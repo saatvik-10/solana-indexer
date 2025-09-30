@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result as SqlResult};
+pub use rusqlite::{Connection, Result as SqlResult};
 
 pub fn init_db() -> SqlResult<Connection> {
     let conn = Connection::open("solana_indexer.db")?;
@@ -21,7 +21,7 @@ pub fn init_db() -> SqlResult<Connection> {
 pub fn save_txn(
     db: &Connection,
     sig: &str,
-    slot: f64,
+    slot: u64,
     block_time: i64,
     fee: u64,
     status: &str,

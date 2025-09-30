@@ -6,6 +6,7 @@ pub fn init_db() -> SqlResult<Connection> {
     conn.execute(
         "
         Create Table IF NOT EXISTS txn (
+            monitored_address TEXT,
             sig TEXT PRIMARY KEY,
             slot INTEGER,
             block_time INTEGER,
@@ -20,6 +21,7 @@ pub fn init_db() -> SqlResult<Connection> {
 
 pub fn save_txn(
     db: &Connection,
+    monitored_address: &str,
     sig: &str,
     slot: u64,
     block_time: i64,
@@ -28,8 +30,8 @@ pub fn save_txn(
     value_moved: i64,
 ) -> SqlResult<()> {
     db.execute(
-        "Insert OR Replace INTO txn (sig, slot, block_time, fee, status, value_moved) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        [sig, &slot.to_string(), &block_time.to_string(), &fee.to_string(), status, &value_moved.to_string()],
+        "Insert OR Replace INTO txn (monitored_address, sig, slot, block_time, fee, status, value_moved) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        [monitored_address, sig, &slot.to_string(), &block_time.to_string(), &fee.to_string(), status, &value_moved.to_string()],
     )?;
     Ok(())
 }

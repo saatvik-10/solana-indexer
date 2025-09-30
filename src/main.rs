@@ -6,12 +6,12 @@ use crate::analysis::analyze_transaction;
 use solana_client::{rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
 use solana_transaction_status::UiTransactionEncoding;
-use std::{str::FromStr, thread, time::Duration};
+use std::{collections::HashMap, str::FromStr, thread, time::Duration};
 
 fn main() -> db::SqlResult<()> {
     println!("Connecting to Solana Devnet...");
 
-    let rpc_url = String::from("https://api.devnet.solana.com");
+    let rpc_url = String::from("https://api.mainnet-beta.solana.com");
     let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
 
     let db_conn = db::init_db()?;
@@ -25,6 +25,20 @@ fn main() -> db::SqlResult<()> {
     }
 
     let address_sol = "So11111111111111111111111111111111111111112";
+
+    let addresses: Vec<String> = vec![
+        "So11111111111111111111111111111111111111112".to_string(),
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+        "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+        "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8".to_string(),
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTp1".to_string(),
+    ];
+
+    let mut last_seen: HashMap<String, String> = HashMap::new();
+
+    for address in &addresses {
+        let _ = last_seen.insert(address.clone(), String::new());
+    }
 
     println!("\nQuerying Transaction...\n");
     match Pubkey::from_str(address_sol) {
@@ -152,25 +166,30 @@ fn main() -> db::SqlResult<()> {
     }
 
     println!("\nContinuous Transaction Monitor...\n");
-    let mut last_seen_sig = String::new();
 
-    match Pubkey::from_str(address_sol) {
-        Ok(pubkey) => {
-            println!("Address {} being monitored", address_sol);
-            println!("Polling transaction every 10 seconds...");
+    println!(
+        "Addresses {} being monitored: {:?}",
+        addresses.len(),
+        addresses
+    );
+    println!("Polling transaction every 10 seconds...");
 
-            loop {
-                match client.get_signatures_for_address(&pubkey) {
+    loop {
+        for address in &addresses {
+            match Pubkey::from_str(address) {
+                Ok(pubkey) => match client.get_signatures_for_address(&pubkey) {
                     Ok(sigs) => {
                         if !sigs.is_empty() {
                             let latest_sig = &sigs[0];
+                            let last = last_seen.get(address).unwrap();
 
-                            if latest_sig.signature != last_seen_sig {
+                            if latest_sig.signature != *last {
                                 println!("New transaction detected!");
                                 let analyze_res = analyze_transaction(&client, latest_sig);
 
                                 db::save_txn(
                                     &db_conn,
+                                    address,
                                     &latest_sig.signature,
                                     latest_sig.slot,
                                     latest_sig.block_time.unwrap_or(0),
@@ -179,7 +198,7 @@ fn main() -> db::SqlResult<()> {
                                     analyze_res.value_moved,
                                 )?;
 
-                                last_seen_sig = latest_sig.signature.clone();
+                                last_seen.insert(address.clone(), latest_sig.signature.clone());
                                 println!("..........................................");
                             } else {
                                 println!("No new transaction found...");
@@ -192,11 +211,10 @@ fn main() -> db::SqlResult<()> {
                         }
                     }
                     Err(e) => println!("Error fetching signatures: {}", e),
-                }
-                thread::sleep(Duration::from_secs(10));
+                },
+                Err(e) => println!("Address is invalid: {}", e),
             }
         }
-        Err(e) => println!("Address is invalid: {}", e),
+        thread::sleep(Duration::from_secs(10));
     }
-    Ok(())
 }

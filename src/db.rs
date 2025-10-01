@@ -35,3 +35,21 @@ pub fn save_txn(
     )?;
     Ok(())
 }
+
+pub fn query_recent_txn(
+    db: &Connection,
+    address: &str,
+    limit: usize,
+) -> SqlResult<Vec<(String, u64, String, u64)>> {
+    let mut statement = db.prepare(
+        "
+        Select sig, slot, status, fee FROM txn WHERE monitored_address = ?1 ORDER BY slot DESC LIMIT ?2
+        "
+    )?;
+
+    let row = statement.query_map([address, &limit.to_string()], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    })?;
+
+    row.collect()
+}

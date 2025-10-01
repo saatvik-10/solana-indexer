@@ -8,38 +8,7 @@ use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature:
 use solana_transaction_status::UiTransactionEncoding;
 use std::{collections::HashMap, str::FromStr, thread, time::Duration};
 
-fn main() -> db::SqlResult<()> {
-    println!("Connecting to Solana Devnet...");
-
-    let rpc_url = String::from("https://api.mainnet-beta.solana.com");
-    let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
-
-    let db_conn = db::init_db()?;
-
-    println!("\nBasic devnet connection...\n");
-    println!("Connected to  Devnet...");
-
-    match client.get_slot() {
-        Ok(slot) => println!("Current slot is: {}", slot),
-        Err(e) => println!("Error getting slot: {}", e),
-    }
-
-    let address_sol = "So11111111111111111111111111111111111111112";
-
-    let addresses: Vec<String> = vec![
-        "So11111111111111111111111111111111111111112".to_string(),
-        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-        "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
-        "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8".to_string(),
-        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTp1".to_string(),
-    ];
-
-    let mut last_seen: HashMap<String, String> = HashMap::new();
-
-    for address in &addresses {
-        let _ = last_seen.insert(address.clone(), String::new());
-    }
-
+fn basic_queries(client: &RpcClient, address_sol: &str) {
     println!("\nQuerying Transaction...\n");
     match Pubkey::from_str(address_sol) {
         Ok(pubkey) => {
@@ -97,7 +66,7 @@ fn main() -> db::SqlResult<()> {
                 Ok(sigs) => {
                     if sigs.is_empty() {
                         println!("No transaction found!");
-                        return Ok(());
+                        return;
                     }
 
                     //details for recent trasaction
@@ -164,6 +133,18 @@ fn main() -> db::SqlResult<()> {
         }
         Err(e) => println!("Invalid Address: {}", e),
     }
+}
+
+fn continuous_monitor(
+    client: &RpcClient,
+    db_conn: &rusqlite::Connection,
+    addresses: &[String],
+) -> db::SqlResult<()> {
+    let mut last_seen: HashMap<String, String> = HashMap::new();
+
+    for address in addresses {
+        let _ = last_seen.insert(address.clone(), String::new());
+    }
 
     println!("\nContinuous Transaction Monitor...\n");
 
@@ -175,7 +156,7 @@ fn main() -> db::SqlResult<()> {
     println!("Polling transaction every 10 seconds...");
 
     loop {
-        for address in &addresses {
+        for address in addresses {
             match Pubkey::from_str(address) {
                 Ok(pubkey) => match client.get_signatures_for_address(&pubkey) {
                     Ok(sigs) => {
@@ -214,7 +195,44 @@ fn main() -> db::SqlResult<()> {
                 },
                 Err(e) => println!("Address is invalid: {}", e),
             }
+            let recent_txn = db::query_recent_txn(&db_conn, &addresses[0], 5)?;
+
+            for (sig, slot, status, fee) in recent_txn {
+                println!("Slot {}: {} - Fee: {} - {}", slot, sig, fee, status)
+            }
         }
         thread::sleep(Duration::from_secs(10));
     }
+}
+
+fn main() -> db::SqlResult<()> {
+    println!("Connecting to Solana Devnet...");
+
+    let rpc_url = String::from("https://api.mainnet-beta.solana.com");
+    let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+
+    let db_conn = db::init_db()?;
+
+    println!("\nBasic devnet connection...\n");
+    println!("Connected to  Devnet...");
+
+    match client.get_slot() {
+        Ok(slot) => println!("Current slot is: {}", slot),
+        Err(e) => println!("Error getting slot: {}", e),
+    }
+
+    let address_sol = "So11111111111111111111111111111111111111112";
+
+    let addresses: Vec<String> = vec![
+        "So11111111111111111111111111111111111111112".to_string(),
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+        "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+        "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8".to_string(),
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTp1".to_string(),
+    ];
+
+    basic_queries(&client, address_sol);
+    continuous_monitor(&client, &db_conn, &addresses)?;
+
+    Ok(())
 }
